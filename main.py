@@ -5,6 +5,7 @@ import os
 import sys
 import glob
 import re
+import pathlib
 
 def main(): 
     args_parser = argparse.ArgumentParser()
@@ -16,14 +17,15 @@ def main():
         return
     
     output_directory = os.path.join(args.input_directory, 'out')
-    if not os.path.isdir(output_directory):
-        os.path.os.mkdir(output_directory)
     print(f'Output directory: {output_directory}')
 
     glob_path = os.path.join(args.input_directory, '*.vtt')
     vtt_files = glob.glob(glob_path)
 
     print(f'Found {len(vtt_files)} with glob {glob_path}')
+
+    season_re = re.compile('(.*)\.S\d+E\d+\.')
+    clean_name_re = re.compile('(.*)\.WEBRip\.Netflix')
 
     for vtt_file in vtt_files:
         print(f'Began processing {vtt_file}')
@@ -36,7 +38,20 @@ def main():
         
         vtt_file_basename = os.path.basename(vtt_file)
         vtt_file_root, _ = os.path.splitext(vtt_file_basename)
-        srt_file = os.path.join(output_directory, vtt_file_root + '.srt')
+        show_folder = vtt_file_root
+
+        clean_name_match = clean_name_re.match(show_folder)
+        if clean_name_match != None:
+            show_folder = clean_name_match.group(1)
+
+        season_re_match = season_re.match(show_folder)
+        if season_re_match != None:
+            show_folder = season_re_match.group(1)
+
+        srt_folder = os.path.join(output_directory, show_folder)
+        pathlib.Path(srt_folder).mkdir(parents=True, exist_ok=True)
+
+        srt_file = os.path.join(srt_folder, vtt_file_root + '.srt')
 
         vtt.save(srt_file, format_='srt')
         print(f'Saved {srt_file}')
