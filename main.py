@@ -21,10 +21,9 @@ def main():
 
     glob_path = os.path.join(args.input_directory, '*.vtt')
     vtt_files = glob.glob(glob_path)
-
     print(f'Found {len(vtt_files)} with glob {glob_path}')
 
-    season_re = re.compile('(.*)\.S\d+E\d+\.')
+    season_re = re.compile('(.*)\.S\d+E\d+')
     clean_name_re = re.compile('(.*)\.WEBRip\.Netflix')
 
     for vtt_file in vtt_files:
@@ -48,6 +47,7 @@ def main():
         if season_re_match != None:
             show_folder = season_re_match.group(1)
 
+        show_folder = show_folder.rstrip('.')
         srt_folder = os.path.join(output_directory, show_folder)
         pathlib.Path(srt_folder).mkdir(parents=True, exist_ok=True)
 
