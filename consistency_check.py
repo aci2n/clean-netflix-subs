@@ -55,24 +55,34 @@ def main():
         sorted_seasons_list = sorted(seasons_list, key=lambda a: a[0])
         sorted_shows.append((show_title, sorted_seasons_list))
 
+    inconsistent_shows = set()
     for sorted_show in sorted_shows:
+        print(sorted_show)
         [show_title, sorted_seasons_list] = sorted_show
         expected_season_seq = 1
         expected_episode_seq = 1
 
         for sorted_season in sorted_seasons_list:
             [season_seq, sorted_episodes_list] = sorted_season
-            offset = expected_episode_seq - 1 if sorted_episodes_list[0] == 1 else 0
+            offset = expected_episode_seq - 1 \
+                if sorted_episodes_list[0] == 1 else 0
 
             if season_seq != expected_season_seq:
-                print(f"{show_title}: expected season {expected_season_seq}, got {season_seq}")
+                print(
+                    f"{show_title}: expected season {expected_season_seq}, got {season_seq}")
+                inconsistent_shows.add(show_title)
 
             for episode_seq in sorted_episodes_list:
                 offseted_seq = episode_seq + offset
                 if offseted_seq != expected_episode_seq:
-                    print(f"{show_title} (S{season_seq}): expected episode {expected_episode_seq}, got {offseted_seq}")
+                    print(
+                        f"{show_title} (S{season_seq}): expected episode {expected_episode_seq}, got {offseted_seq}")
+                    inconsistent_shows.add(show_title)
                 expected_episode_seq += 1
-            
-            expected_season_seq +=1
+
+            expected_season_seq += 1
+
+    print(f'Inconsistent shows: {inconsistent_shows}')
+
 
 main()
