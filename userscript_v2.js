@@ -84,11 +84,11 @@ class MetadataProcessor {
     const video = data.video;
 
     if (video.type === 'show') {
+      video.seasons.forEach(season => console.log('Season', season.seq, season.episodes.map(episode => episode.seq)));
+
       if (video.currentEpisode == null) {
         throw new Error('Current episode missing');
       }
-
-      video.seasons.forEach(season => console.log('Season', season.seq, season.episodes.map(episode => episode.seq)));
 
       const episodes = video.seasons.flatMap(season => season.episodes.map(episode => {
         return {
@@ -293,17 +293,16 @@ class BatchFetcher {
 
       if (config.first && metadata.current.id !== metadata.first.id) {
         const url = this.buildUrl(metadata.first.id, config);
-        console.warn('Expected the first episode in the season but got another one, redirecting', url);
+        console.warn('Expected the first episode in show but got another one, redirecting', url);
         location.href = url;
         return [];
       }
 
       const downloads = await new SingleFetcher().download(ctx);
-
       console.log('Download finished, will process next', downloads, metadata, config);
 
       if (metadata.next && downloads.length === 0) {
-        console.warn('Did not download any subtitles for episode, will skip series', metadata, config);
+        console.warn('Did not download any subtitles for episode, will skip show', metadata, config);
       }
 
       if (metadata.next && downloads.length > 0) {
@@ -337,14 +336,21 @@ class BatchFetcher {
 class Initializer {
   async initialize() {
     try {
+      const config = Config.fromSearchString(location.search);
+      if (config.mode === MODE.NONE) {
+        console.log('No mode defined, will not do anything');
+        return null;
+      }
+
+      console.log('Waiting for necessary data to download subtitles...');
       const promise = Promise.race([
         new Promise((_, reject) => setTimeout(() => reject(new Error('Timed out waiting for data')), 30000)),
         Promise.all([new MetadataProcessor().get(), new SubtitlesProcessor().get()])
       ]);
+
       new Injector().inject();
 
       const [metadata, subs] = await promise;
-      const config = Config.fromSearchString(location.search);
       const ctx = { metadata, subs, config };
 
       switch (config.mode) {
@@ -392,10 +398,11 @@ class Injector {
                 value.showAllSubDubTracks = true;
               }
               catch (error) {
-                if (error instanceof TypeError)
+                if (error instanceof TypeError) {
                   continue;
-                else
+                } else {
                   throw error;
+                }
               }
             }
           }
@@ -403,10 +410,11 @@ class Injector {
         };
 
         XMLHttpRequest.prototype.open = function () {
-          if (arguments[1] && arguments[1].includes('/metadata?'))
+          if (arguments[1] && arguments[1].includes('/metadata?')) {
             this.addEventListener('load', () => {
               dispatchEvent(new CustomEvent('metadata_loaded', { detail: this.response }));
             }, false);
+          }
           open.apply(this, arguments);
         };
       })(JSON.parse, JSON.stringify, XMLHttpRequest.prototype.open);

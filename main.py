@@ -1,4 +1,3 @@
-from genericpath import isdir
 import pysubs2
 import argparse
 import os
