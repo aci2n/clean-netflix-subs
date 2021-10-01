@@ -388,7 +388,11 @@ const _download = async _zip => {
     }
   }
   
-  console.log('Filtered langs (if empty there was no match)', filteredLangs);
+  console.log('Filtered langs', filteredLangs);
+  if (filteredLangs.length === 0) {
+    console.warn('No filtered langs found', Object.keys(subs), window.location.href);
+    debugger;
+  }
 
   const progress = new ProgressBar(filteredLangs.length);
   let stop = false;
@@ -405,13 +409,14 @@ const _download = async _zip => {
         result = await Promise.race([resultPromise, progress.stop, asyncSleep(30, STOP_THE_DOWNLOAD)]);
       }
       catch(e) {
-        console.log('Fetch failed for', url);
+        console.error('Fetch failed for', url, e);
         debugger;
         // the only promise that can be rejected is the one from fetch
         // if that happens we want to stop the download anyway
         result = STOP_THE_DOWNLOAD;
       }
       if(result === STOP_THE_DOWNLOAD) {
+        console.error('result === STOP_THE_DOWNLOAD, will stop');
         stop = true;
         break;
       }
@@ -422,7 +427,7 @@ const _download = async _zip => {
         downloaded.push({lang, data, extension});
         break;
       } else {
-        console.log('Empty data from download', {url, lang, extension});
+        console.error('Empty data from download', {url, lang, extension});
         debugger;
       }
     }
@@ -431,7 +436,11 @@ const _download = async _zip => {
   }
   
   if (downloaded.length === 0) {
-    console.log("No subs downloaded");
+    console.warn("No subs downloaded", window.location.href);
+    if (filteredLangs.length > 0) {
+      console.error("No subs downloaded but we had filtered langs");
+      stop = true;
+    }
     debugger;
   }
 
@@ -444,7 +453,7 @@ const _download = async _zip => {
     stop = true;
   progress.destroy();
 
-  return [title, stop];
+  return [title, stop, filteredLangs];
 };
 
 const downloadThis = async () => {
@@ -455,17 +464,23 @@ const downloadThis = async () => {
 
 const downloadAll = async () => {
   zip = zip || new JSZip();
-  const [title, stop] = await _download(zip);
+  const [title, stop, filteredLangs] = await _download(zip);
+  
+  if (stop) {
+    console.error('Stopping the download, will reload page', unsafeWindow.location.href);
+    unsafeWindow.location.reload();
+    return;
+  }
   
   if (Object.keys(zip.files).length > 0) {
     console.log('Saving zip file', title, zip);
     await _save(zip, title);
   } else {
-    console.log('Skipping save of empty zip file', zip);
+    console.error('Skipping save of empty zip file', zip);
     debugger;
   }
   
-  if (nextEpisodeId) {
+  if (nextEpisodeId && filteredLangs.length > 0) {
     const nextEpisodeUrl = unsafeWindow.location.origin + '/watch/' + nextEpisodeId + '?subtitle-batch&subtitle-queue=' + queue.join(',');
     console.log('Redirecting to next episode', nextEpisodeUrl);
     unsafeWindow.location.href = nextEpisodeUrl;
