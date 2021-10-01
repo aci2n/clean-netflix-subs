@@ -20,9 +20,9 @@ Queue url builder:
 */
 
 const FORMATS = {
-  WEBVTT: { id: 'WEBVTT', name: 'webvtt-lssdh-ios8', ext: 'vtt' },
-  DFXP: { id: 'DFXP', name: 'dfxp-ls-sdh', ext: 'dfxp' },
-  SIMPLESDH: { id: 'SIMPLESHD', name: 'simplesdh', ext: 'xml' }
+  WEBVTT: { id: 'webvtt', name: 'webvtt-lssdh-ios8', ext: 'vtt' },
+  DFXP: { id: 'dfxp', name: 'dfxp-ls-sdh', ext: 'dfxp' },
+  SIMPLESDH: { id: 'simplesdh', name: 'simplesdh', ext: 'xml' }
 };
 
 const MODE = {
@@ -32,20 +32,25 @@ const MODE = {
 }
 
 class Config {
-  static LANGS_KEY = 'langs';
   static MODE_KEY = 'mode';
   static QUEUE_KEY = 'queue';
+  static LANGS_KEY = 'langs';
   static FORMAT_KEY = 'format';
   static FIRST_KEY = 'first';
 
   static fromSearchString(searchString) {
     const params = new URLSearchParams(searchString);
+    const mode = params.get(Config.MODE_KEY) || '';
+    const queue = params.get(Config.QUEUE_KEY) || '';
+    const langs = params.get(Config.LANGS_KEY) || '';
+    const format = params.get(Config.FORMAT_KEY) || '';
+    const first = params.has(Config.FIRST_KEY);
     return new Config(
-      params.get(Config.MODE_KEY) || MODE.NONE,
-      Config.readAsArray(params.get(Config.QUEUE_KEY)),
-      Config.readAsArray(params.get(Config.LANGS_KEY)),
-      FORMATS[params.get(Config.FORMAT_KEY)] || FORMATS.WEBVTT,
-      params.has(Config.FIRST_KEY));
+      MODE[mode.toUpperCase()] || MODE.NONE,
+      queue ? queue.split(',') : [],
+      langs ? langs.split(',') : [],
+      FORMATS[format.toUpperCase()] || FORMATS.WEBVTT,
+      first);
   }
 
   constructor(mode, queue, langs, format, first) {
@@ -56,19 +61,15 @@ class Config {
     this.first = first;
   }
 
-  static readAsArray(value) {
-    return value ? value.split(',') : [];
-  }
-
   toSearchString() {
     const params = new URLSearchParams();
     params.set(Config.MODE_KEY, this.mode);
-    if (this.langs.length > 0) {
-      params.set(Config.LANGS_KEY, this.langs.join(','));
-    }
     params.set(Config.FORMAT_KEY, this.format.id);
     if (this.first) {
       params.set(Config.FIRST_KEY, '');
+    }
+    if (this.langs.length > 0) {
+      params.set(Config.LANGS_KEY, this.langs.join(','));
     }
     if (this.queue.length > 0) {
       params.set(Config.QUEUE_KEY, this.queue.join(','));
@@ -159,24 +160,24 @@ class SubtitlesProcessor {
         id: track.language,
         tag: track.language + type + (track.isForcedNarrative ? '-forced' : ''),
       };
-      const formats = {};
+      const urlsByFormat = {};
 
       for (const format of Object.values(FORMATS)) {
         const downloadables = track.ttDownloadables[format.name];
 
         if (downloadables != null) {
-          const downloadUrls = Object.values(downloadables.downloadUrls);
+          const urls = Object.values(downloadables.downloadUrls);
 
-          if (downloadUrls.length > 0) {
-            formats[format.id] = { downloadUrls };
+          if (urls.length > 0) {
+            urlsByFormat[format.id] = urls;
           } else {
             console.warn('Found no download urls for a format in track', format, track);
           }
         }
       }
 
-      if (Object.keys(formats).length > 0) {
-        subs.push({ lang, formats });
+      if (Object.keys(urlsByFormat).length > 0) {
+        subs.push({ lang, urlsByFormat });
       } else {
         console.log('Did not find any downloadables for track', track);
       }
@@ -211,14 +212,14 @@ class SingleFetcher {
     }
 
     for (const sub of filtered) {
-      const format = sub.formats[config.format.id];
+      const urls = sub.urlsByFormat[config.format.id];
 
-      if (format) {
+      if (urls) {
         const filename = this.getFilename(episode, sub.lang.tag, config.format.ext);
-        console.log('Will try to download sub', format.downloadUrls, filename);
-        downloads.push(await this.downloadFirst(format.downloadUrls, filename));
+        console.log('Will try to download sub', urls, filename);
+        downloads.push(await this.downloadFirst(urls, filename));
       } else {
-        console.log('Format not found in sub', format, sub);
+        console.log('Format not found in sub', sub);
       }
     }
 
