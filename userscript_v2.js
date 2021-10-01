@@ -7,6 +7,18 @@
 // @include     https://www.netflix.com/watch*
 // ==/UserScript==
 
+/*
+Queue url builder:
+(function() {
+  const episodeIds = Array.from(document.querySelectorAll(".ptrack-content > a"))
+    .map(link => link.href)
+    .map(url => url.split('/').pop().split('?').shift())
+    .map(id => Number.parseInt(id))
+    .filter(id => !isNaN(id));
+  return window.location.origin + '/watch/' + episodeIds[0] + '?mode=batch&first&langs=ja&format=WEBVTT&queue=' + episodeIds.slice(1).join(',');
+}())
+*/
+
 const FORMATS = {
   WEBVTT: { id: 'WEBVTT', name: 'webvtt-lssdh-ios8', ext: 'vtt' },
   DFXP: { id: 'DFXP', name: 'dfxp-ls-sdh', ext: 'dfxp' },
@@ -24,6 +36,7 @@ class Config {
   static MODE_KEY = 'mode';
   static QUEUE_KEY = 'queue';
   static FORMAT_KEY = 'format';
+  static FIRST_KEY = 'first';
 
   static fromSearchString(searchString) {
     const params = new URLSearchParams(searchString);
@@ -31,14 +44,16 @@ class Config {
       params.get(Config.MODE_KEY) || MODE.NONE,
       Config.readAsArray(params.get(Config.QUEUE_KEY)),
       Config.readAsArray(params.get(Config.LANGS_KEY)),
-      FORMATS[params.get(Config.FORMAT_KEY)] || FORMATS.WEBVTT);
+      FORMATS[params.get(Config.FORMAT_KEY)] || FORMATS.WEBVTT,
+      params.has(Config.FIRST_KEY));
   }
 
-  constructor(mode, queue, langs, format) {
+  constructor(mode, queue, langs, format, first) {
     this.mode = mode;
     this.queue = queue;
     this.langs = langs;
     this.format = format;
+    this.first = first;
   }
 
   static readAsArray(value) {
@@ -52,6 +67,9 @@ class Config {
       params.set(Config.LANGS_KEY, this.langs.join(','));
     }
     params.set(Config.FORMAT_KEY, this.format.id);
+    if (this.first) {
+      params.set(Config.FIRST_KEY, '');
+    }
     if (this.queue.length > 0) {
       params.set(Config.QUEUE_KEY, this.queue.join(','));
     }
@@ -69,6 +87,7 @@ class MetadataProcessor {
       if (video.currentEpisode == null) {
         throw new Error('Current episode missing');
       }
+
       video.seasons.forEach(season => console.log('Season', season.seq, season.episodes.map(episode => episode.seq)));
 
       const episodes = video.seasons.flatMap(season => season.episodes.map(episode => {
@@ -84,41 +103,47 @@ class MetadataProcessor {
         }
         return a.seq.episode - b.seq.episode;
       });
+
+      if (episodes.length === 0) {
+        throw new Error('Got empty list of episodes');
+      }
+
       const index = episodes.findIndex(episode => episode.id === video.currentEpisode);
 
       if (index === -1) {
         throw new Error('Did not find current episode in metadata');
       }
 
+      const first = episodes[0];
       const current = episodes[index];
       const next = episodes[index + 1]; // nullable
 
-      console.log('Current episode', { season: current.seq.season, ep: current.seq.episode, title: current.title, id: current.id });
+      console.log('First episode', this.friendlyLogFormat(first));
+      console.log('Current episode', this.friendlyLogFormat(current));
       if (next) {
-        console.log('Next episode', { season: next.seq.season, ep: next.seq.episode, title: next.title, id: next.id });
+        console.log('Next episode', this.friendlyLogFormat(next));
       } else {
         console.log('Last episode of this series');
       }
 
-      return { current, next };
+      return { first, current, next };
     }
 
     if (video.type === 'movie' || video.type === 'supplemental') {
       const current = { id: video.id, title: null, seq: null, show: video.title };
       console.log('Processed metadata for movie', current);
-      return { current, next: null };
+      return { first: current, current, next: null };
     }
 
     throw new Error('Unknown video type: ' + video.type);
   }
+
+  friendlyLogFormat(episode) {
+    return { season: episode.seq.season, ep: episode.seq.episode, title: episode.title, id: episode.id };
+  }
 }
 
 class SubtitlesProcessor {
-  static SUB_TYPES = {
-    'subtitles': '',
-    'closedcaptions': '[cc]'
-  };
-
   async get() {
     const data = await new Promise(resolve => addEventListener('subtitles_loaded', event => resolve(event.detail)));
     console.log('Raw subtitles', data);
@@ -260,8 +285,20 @@ class SingleFetcher {
 class BatchFetcher {
   async download(ctx) {
     try {
-      const downloads = await new SingleFetcher().download(ctx);
       const { metadata, config } = ctx;
+
+      if (config.first) {
+        console.log('Downloading first episode in show');
+      }
+
+      if (config.first && metadata.current.id !== metadata.first.id) {
+        const url = this.buildUrl(metadata.first.id, config);
+        console.warn('Expected the first episode in the season but got another one, redirecting', url);
+        location.href = url;
+        return [];
+      }
+
+      const downloads = await new SingleFetcher().download(ctx);
 
       console.log('Download finished, will process next', downloads, metadata, config);
 
@@ -270,11 +307,12 @@ class BatchFetcher {
       }
 
       if (metadata.next && downloads.length > 0) {
-        const url = this.buildUrl(metadata.next.id, config);
+        const c = new Config(config.mode, config.queue, config.langs, config.format, false);
+        const url = this.buildUrl(metadata.next.id, c);
         console.log('Advancing to next episode in show', url)
         location.href = url;
       } else if (config.queue.length > 0) {
-        const c = new Config(config.mode, config.queue.slice(1), config.langs, config.format);
+        const c = new Config(config.mode, config.queue.slice(1), config.langs, config.format, true);
         const url = this.buildUrl(config.queue[0], c);
         console.log('Advacing to next queued show', url);
         location.href = url;
@@ -287,7 +325,7 @@ class BatchFetcher {
     } catch (error) {
       console.error('Something failed during fetch, will reload and retry', error);
       location.reload();
-      throw error;
+      return error;
     }
   }
 
@@ -322,9 +360,9 @@ class Initializer {
 
       return ctx;
     } catch (error) {
-      console.log('Something failed during initialization, will reload and retry', error);
+      console.error('Something failed during initialization, will reload and retry', error);
       location.reload();
-      throw error;
+      return error;
     }
   }
 }
